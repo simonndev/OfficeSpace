@@ -1,0 +1,210 @@
+﻿@using OfficeSpace.Models.Master
+@model MasterModel
+
+@{
+    ViewBag.Title = "Master";
+    Layout = "~/Views/Shared/_Layout.cshtml";
+}
+
+@Styles.Render("~/Content/css/slickgrid")
+
+<style>
+    #masterGrid {
+        height: 100%;
+    }
+
+    /*.slick-header-column.ui-state-default {
+        background: none;
+        background-color: #505050;
+        color: #eeeeee;
+        border: none;
+        padding: 0;
+        text-shadow: none;
+        font-family: Arial, Verdana, Helvetica, sans-serif;
+        font-size: 13px;
+        height: 40px;
+        line-height: 40px;
+    }
+
+    .slick-row.ui-widget-content, .slick-cell {
+        background: none;
+        background-color: #eeeeee;
+        color: #666666;
+        border: none;
+        border-bottom: solid 1px #ffffff;
+        font-size: 14px;
+        height: 60px;
+        line-height: 60px;
+        padding: 0 5px;
+    }*/
+
+    .toggle {
+        height: 9px;
+        width: 9px;
+        display: inline-block;
+    }
+
+    .custom-column-width {
+        width: 14%;
+    }
+</style>
+
+<h2>@ViewBag.Title</h2>
+<hr />
+
+<div class="row">
+    @Html.Partial("_FilterPartial")
+</div>
+
+<div class="row">
+    <div class="slickgrid-container">
+        <div id="masterGrid"></div>
+    </div>
+</div>
+
+@section Scripts
+{
+    @Scripts.Render("~/bundles/slickgrid-basic")
+
+    <script type="text/javascript">
+
+        $(document).ready(function () {
+            $.ajaxSetup({ cache: false });
+
+            $('#btnFilter').click(function () {
+                var locationId = $("#ddownLocationSelection").val();
+                var buildingId = $("#ddownBuildingSelection").val();
+                var floorId = $("#ddownFloorSelection").val();
+                var wingId = $("#ddownWingSelection").val();
+
+                loadTreeGrid(locationId);
+            });
+        });
+
+        var grid;
+        var dataView;
+        var columns = [];
+        var data = [];
+
+        var options = {
+            editable: false,
+            enableAddRow: false,
+            enableCellNavigation: false,
+            enableColumnReorder: false,
+            asyncEditorLoading: false,
+            forceFitColumns: true,
+            autoHeight: true
+        };
+
+        var NodeNameFormatter = function (row, cell, value, columnDef, dataContext) {
+            value = value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace( />/g, "&gt;");
+            var spacer = "<span style='display:inline-block;height:1px;width:" + (20 * dataContext["indent"]) + "px'></span>";
+            var idx = dataView.getIdxById(dataContext.id);
+
+            if (data[idx + 1] && data[idx + 1].indent > data[idx].indent) {
+                if (dataContext._collapsed) {
+                    return spacer + " <span class='toggle glyphicon glyphicon-chevron-right'></span>&nbsp;&nbsp;<b>" + value + "</b>";
+                } else {
+                    return spacer + " <span class='toggle glyphicon glyphicon-chevron-down'></span>&nbsp;&nbsp;" + value;
+                }
+            } else {
+                return spacer + " <span class='toggle'></span>&nbsp;&nbsp;" + value;
+            }
+        };
+
+        var columns = [
+          { id: "name", name: "Name", field: "name", formatter: NodeNameFormatter },
+          { id: "code", name: "Code", field: "code" }
+          //{ id: "code", name: "Item ID", field: "itemId" },
+          //{ id: "createdDate", name: "Created Date", field: "createdDate" },
+          //{ id: "updatedDate", name: "Updated Date", field: "updatedDate" }
+        ];
+
+        var nameSearchString = '';
+
+        function nameFilter(item) {
+            if (nameSearchString != "" && item["name"].indexOf(nameSearchString) == -1) {
+                return false;
+            }
+
+            if (item.parent != null) {
+                var parent = data[item.parent];
+                while (parent) {
+                    if (parent._collapsed || (nameSearchString != "" && parent["name"].indexOf(nameSearchString) == -1)) {
+                        return false;
+                    }
+
+                    parent = data[parent.parent];
+                }
+            }
+
+            return true;
+        }
+
+        $(function () {
+
+            var paramObj = {
+                locationId: 0
+            };
+            var url = '@Url.Action("GetTreeGridJson", "Master")';
+
+            $.getJSON(url, paramObj, function (response, status, xhr) {
+                debugger;
+
+                data = response;
+
+                dataView.beginUpdate();
+                dataView.setItems(data);
+                dataView.setFilter(nameFilter);
+                dataView.endUpdate();
+            });
+
+            dataView = new Slick.Data.DataView({ inlineFilters: true });
+
+            grid = new Slick.Grid("#masterGrid", dataView, columns, options);
+            grid.onClick.subscribe(function (e, args) {
+                if ($(e.target).hasClass("toggle")) {
+                    var item = dataView.getItem(args.row);
+                    if (item) {
+                        if (!item._collapsed) {
+                            item._collapsed = true;
+                        } else {
+                            item._collapsed = false;
+                        }
+
+                        dataView.updateItem(item.id, item);
+                    }
+
+                    e.stopImmediatePropagation();
+                }
+            });
+
+            dataView.onRowCountChanged.subscribe(function (e, args) {
+                grid.updateRowCount();
+                grid.render();
+            });
+
+            dataView.onRowsChanged.subscribe(function (e, args) {
+                grid.invalidateRows(args.rows);
+                grid.render();
+            });
+        });
+
+        function loadTreeGrid(locationId, buildingId, floorId, unitId) {
+            var paramObj = {
+                locationId: locationId
+            };
+            var url = '@Url.Action("GetTreeGridJson", "Master")';
+
+            $.getJSON(url, paramObj, function (response, status, xhr) {
+
+                data = response;
+
+                dataView.beginUpdate();
+                dataView.setItems(data);
+                dataView.setFilter(nameFilter);
+                dataView.endUpdate();
+            });
+        }
+    </script>
+}

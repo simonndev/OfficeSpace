@@ -1,0 +1,36 @@
+﻿<div class="col-md-2">
+    <div class="form-group">
+        @Html.Label("Location", "Location", new { @class = "control-label text-primary" })
+        @Html.DropDownList("LocationSelection", ViewData["LocationSelection"] as IEnumerable<SelectListItem>, new { @id = "ddownLocationSelection", @class = "form-control" })
+    </div>
+</div>
+<div class="col-md-2">
+    <div class="form-group">
+        <label class="control-label text-primary">Building</label>
+        <select id="ddownBuildingSelection" class="form-control">
+            <option selected>Please select a Building</option>
+        </select>
+    </div>
+</div>
+<div class="col-md-2">
+    <div class="form-group">
+        <label class="control-label">Floor</label>
+        <select id="ddownFloorSelection" class="form-control">
+            <option selected>Please select a Floor</option>
+        </select>
+    </div>
+</div>
+<div class="col-md-2">
+    <div class="form-group">
+        <label class="control-label">Unit</label>
+        <select id="ddownUnitSelection" class="form-control">
+            <option selected>Please select a Unit</option>
+        </select>
+    </div>
+</div>
+<div class="col-md-2">
+    <div class="form-group">
+        <label class="control-label">&nbsp;</label>
+        <button id="btnFilter" type="button" class="btn btn-primary form-control">Filter</button>
+    </div>
+</div>
