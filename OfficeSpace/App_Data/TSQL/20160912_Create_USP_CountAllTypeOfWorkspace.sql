@@ -41,7 +41,7 @@ BEGIN
 
 	IF @LocationId = 0
 		SELECT @selectFromSource = '
-			SELECT L.LocationId AS ID, L.LocationName AS Name,
+			SELECT L.LocationId AS ItemId, L.LocationName AS Name,
 				WS.WorkspaceId, WS.WorkspaceTypeId
 			FROM Locations L
 				JOIN Buildings B ON L.LocationId = B.LocationId AND B.IsDeleted = 0
@@ -52,7 +52,7 @@ BEGIN
 	ELSE
 	BEGIN
 		SELECT @selectFromSource = '
-			SELECT L.LocationId AS ID, L.LocationName AS Name,
+			SELECT L.LocationId AS ItemId, L.LocationName AS Name,
 				WS.WorkspaceId, WS.WorkspaceTypeId
 			FROM Locations L
 				JOIN Buildings B ON L.LocationId = B.LocationId AND B.IsDeleted = 0
@@ -63,7 +63,7 @@ BEGIN
 		
 		IF @BuildingID = 0
 			SELECT @selectFromSource = '
-				SELECT B.BuildingId AS ID, B.BuildingName AS Name,
+				SELECT B.BuildingId AS ItemId, B.BuildingName AS Name,
 					WS.WorkspaceId, WS.WorkspaceTypeId
 				FROM Buildings B
 					JOIN Floors F ON B.BuildingId = F.BuildingID AND F.IsDeleted = 0
@@ -73,7 +73,7 @@ BEGIN
 		ELSE IF @BuildingID > 0
 		BEGIN
 			SELECT @selectFromSource = '
-				SELECT B.BuildingId AS ID, B.BuildingName AS Name,
+				SELECT B.BuildingId AS ItemId, B.BuildingName AS Name,
 					WS.WorkspaceId, WS.WorkspaceTypeId
 				FROM Buildings B
 					JOIN Floors F ON B.BuildingId = F.BuildingID AND F.IsDeleted = 0
@@ -83,7 +83,7 @@ BEGIN
 
 			IF @FloorID = 0
 				SELECT @selectFromSource = '
-					SELECT F.FloorId AS ID, F.FloorName AS Name,
+					SELECT F.FloorId AS ItemId, F.FloorName AS Name,
 						WS.WorkspaceId, WS.WorkspaceTypeId
 					FROM Floors F
 						JOIN Units U ON F.FloorId = U.FloorID AND U.IsDeleted = 0
@@ -92,7 +92,7 @@ BEGIN
 			ELSE IF @FloorID > 0
 			BEGIN
 				SELECT @selectFromSource = '
-					SELECT F.FloorId AS ID, F.FloorName AS Name,
+					SELECT F.FloorId AS ItemId, F.FloorName AS Name,
 						WS.WorkspaceId, WS.WorkspaceTypeId
 					FROM Floors F
 						JOIN Units U ON F.FloorId = U.FloorID AND U.IsDeleted = 0
@@ -101,14 +101,14 @@ BEGIN
 
 				IF @UnitID = 0
 					SELECT @selectFromSource = '
-						SELECT U.UnitId AS ID, U.UnitName AS Name,
+						SELECT U.UnitId AS ItemId, U.UnitName AS Name,
 							WS.WorkspaceId, WS.WorkspaceTypeId
 						FROM Units U
 							JOIN Workspaces WS ON U.UnitId = WS.UnitId AND WS.IsDeleted = 0
 						WHERE U.IsDeleted = 0'
 				ELSE IF @UnitID > 0
 					SELECT @selectFromSource = 
-						N'SELECT U.UnitId AS ID, U.UnitName AS Name,
+						N'SELECT U.UnitId AS ItemId, U.UnitName AS Name,
 							WS.WorkspaceId, WS.WorkspaceTypeId
 						FROM Units U JOIN Workspaces WS ON U.UnitId = WS.UnitId AND WS.IsDeleted = 0
 						WHERE U.IsDeleted = 0 AND U.UnitId = ' + CAST(@UnitID AS nvarchar(5))
@@ -118,7 +118,7 @@ BEGIN
 
 	DECLARE @query AS NVARCHAR(MAX)
 	SELECT @query = '
-		SELECT ID, Name, ' + @wsTypeIdAsNameCols + '
+		SELECT ItemId, Name, ' + @wsTypeIdAsNameCols + '
 		FROM
 		('
 			+ @selectFromSource +
@@ -130,7 +130,7 @@ BEGIN
 		) Pvt
 	'
 	
-	PRINT @query
+	--PRINT @query
 	EXEC(@query)
 
 END

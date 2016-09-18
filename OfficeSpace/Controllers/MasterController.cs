@@ -1,8 +1,10 @@
 ﻿using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
 using OfficeSpace.DataAccess;
+using OfficeSpace.DataAccess.Models;
 using OfficeSpace.Models.Dynamic;
 using OfficeSpace.Models.Master;
+using OfficeSpace.Models.SlickGrid;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -35,17 +37,12 @@ namespace OfficeSpace.Controllers
                 {
                     Text = l.Name,
                     Value = l.Id.ToString()
-                }).ToListAsync();
+                })
+                .ToListAsync();
 
-            locationSelection.Insert(0, new SelectListItem
-            {
-                Text = "All",
-                Value = "0"
-            });
-
+            locationSelection.Insert(0, new SelectListItem { Text = "All", Value = "0" });
+            
             ViewData["LocationSelection"] = locationSelection;
-
-
 
             return View();
         }
@@ -124,23 +121,31 @@ namespace OfficeSpace.Controllers
 
         public async Task<ActionResult> GetTreeGridJson(int locationId = 0, int? buildingId = null, int? floorId = null, int? unitId = null)
         {
-            var tree = await PopulateMasterTreeGrid(locationId, buildingId, floorId, unitId);
+            var slickgrid = await PopulateMasterTreeGrid(locationId, buildingId, floorId, unitId);
 
             var settings = new JsonSerializerSettings
             {
                 ContractResolver = new CamelCasePropertyNamesContractResolver()
             };
 
-            string json = JsonConvert.SerializeObject(tree, Formatting.Indented, settings);
+            string json = JsonConvert.SerializeObject(
+                new {
+                    Columns = slickgrid.GridColumns,
+                    Data = slickgrid.TreeData
+                },
+                Formatting.Indented,
+                settings);
 
             return Content(json, "application/json", System.Text.Encoding.UTF8);
         }
 
-        private async Task<IEnumerable<MasterTreeGridItemModel>> PopulateMasterTreeGrid(
+        private async Task<SlickGridDynamicModel> PopulateMasterTreeGrid(
             int locationId = 0,
             int? buildingId = null, int? floorId = null, int? unitId = null)
         {
-            var tree = new List<MasterTreeGridItemModel>();
+            SlickGridDynamicModel slickgrid = new SlickGridDynamicModel();
+
+            var tree = new List<dynamic>();
             int id = 0;
             int parentId = 0;
 
@@ -156,35 +161,59 @@ namespace OfficeSpace.Controllers
                 var locations = await _dbContext.Locations.Where(l => !l.IsDeleted).ToListAsync();
                 if (locations.Count > 0)
                 {
-                    var result = await CountAllTypeOfWorkspace(locationId);
+                    var result = await CountAllTypeOfWorkspaceIn(true, locationId);
 
                     foreach (var location in locations)
                     {
-                        if (result.Rows.ContainsKey(location.Id))
+                        dynamic locationModel = new ExpandoObject();
+                        locationModel.Id = "id_" + id.ToString();
+                        locationModel.Indent = 0;
+                        locationModel.Parent = null;
+
+                        locationModel.ItemId = location.Id;
+                        locationModel.Name = location.Name;
+                        locationModel.Code = location.Code;
+                        locationModel.CreatedDate = location.CreatedDate.ToString("dd-MMM-yyyy hh:mm");
+                        locationModel.UpdatedDate = location.UpdatedDate.ToString("dd-MMM-yyyy hh:mm");
+
+                        dynamic locationExpando = result.ExpandoDataSet.SingleOrDefault(e => e.ItemId == location.Id);
+                        if (locationExpando == null)
                         {
-                            var rowData = result.Rows[location.Id];
+                            locationExpando = result.GetDefaultExpando(location.Id, location.Name);
+
+                            dynamic treeGridItem = Combine(locationExpando, locationModel);
+
+                            var gridColumnInfos = (ICollection<KeyValuePair<string, object>>)treeGridItem;
+                            slickgrid.GridColumns = gridColumnInfos.Select(kvp => new SlickGridColumnModel
+                            {
+                                Id = "col" + kvp.Key,
+                                Name = kvp.Key,
+                                Field = Char.ToLowerInvariant(kvp.Key[0]) + kvp.Key.Substring(1)
+                            }).ToList();
+
+                            tree.Add(treeGridItem);
                         }
-
-                        tree.Add(new MasterTreeGridItemModel
+                        else
                         {
-                            Id = "id_" + id.ToString(),
-                            Indent = 0,
-                            Parent = null,
+                            dynamic treeGridItem = Combine(locationExpando, locationModel);
 
-                            ItemId = location.Id,
-                            Name = location.Name,
-                            Code = location.Code,
-                            CreatedDate = location.CreatedDate.ToString("dd-MMM-yyyy hh:mm"),
-                            UpdatedDate = location.UpdatedDate.ToString("dd-MMM-yyyy hh:mm"),
+                            var gridColumnInfos = (ICollection<KeyValuePair<string, object>>)treeGridItem;
+                            slickgrid.GridColumns = gridColumnInfos.Select(kvp => new SlickGridColumnModel
+                            {
+                                Id = "col" + kvp.Key,
+                                Name = kvp.Key,
+                                Field = Char.ToLowerInvariant(kvp.Key[0]) + kvp.Key.Substring(1)
+                            }).ToList();
 
-                        });
+                            tree.Add(treeGridItem);
 
-                        var locationBranch = await PopulateLocationBranch(
-                            itemId => id = itemId, () => id,
-                            pId => parentId = pId, () => parentId,
-                            location.Id);
+                            var locationBranch = await PopulateLocationBranch(
+                                itemId => id = itemId, () => id,
+                                pId => parentId = pId, () => parentId,
+                                location.Id);
 
-                        tree.AddRange(locationBranch);
+                            tree.AddRange(locationBranch);
+                        }
 
                         ++id;
                     }
@@ -192,23 +221,33 @@ namespace OfficeSpace.Controllers
             }
             else
             {
-                var result = await CountAllTypeOfWorkspace(locationId);
-
                 // locationId > 0 (it shouldn't be NULL, should it?)
                 var location = await _dbContext.Locations.SingleOrDefaultAsync(l => l.Id == locationId);
+                dynamic locationModel = new ExpandoObject();
+                locationModel.Id = "id_" + id.ToString();
+                locationModel.Indent = 0;
+                locationModel.Parent = null;
 
-                tree.Add(new MasterTreeGridItemModel
+                locationModel.ItemId = location.Id;
+                locationModel.Name = location.Name;
+                locationModel.Code = location.Code;
+                locationModel.CreatedDate = location.CreatedDate.ToString("dd-MMM-yyyy hh:mm");
+                locationModel.UpdatedDate = location.UpdatedDate.ToString("dd-MMM-yyyy hh:mm");
+
+                var result = await CountAllTypeOfWorkspaceIn(true, locationId);
+                dynamic locationExpando = result.ExpandoDataSet.SingleOrDefault(e => e.ItemId == location.Id);
+
+                dynamic treeGridItem = Combine(locationExpando, locationModel);
+
+                var gridColumnInfos = (ICollection<KeyValuePair<string, object>>)treeGridItem;
+                slickgrid.GridColumns = gridColumnInfos.Select(kvp => new SlickGridColumnModel
                 {
-                    Id = "id_" + id.ToString(),
-                    Indent = 0,
-                    Parent = null,
+                    Id = "col" + kvp.Key,
+                    Name = kvp.Key,
+                    Field = Char.ToLowerInvariant(kvp.Key[0]) + kvp.Key.Substring(1)
+                }).ToList();
 
-                    ItemId = location.Id,
-                    Name = location.Name,
-                    Code = location.Code,
-                    CreatedDate = location.CreatedDate.ToString("dd-MMM-yyyy hh:mm"),
-                    UpdatedDate = location.UpdatedDate.ToString("dd-MMM-yyyy hh:mm")
-                });
+                tree.Add(treeGridItem);
 
                 var locationBranch = await PopulateLocationBranch(
                     itemId => id = itemId, () => id,
@@ -219,7 +258,9 @@ namespace OfficeSpace.Controllers
                 tree.AddRange(locationBranch);
             }
 
-            return tree;
+            slickgrid.TreeData = tree;
+
+            return slickgrid;
         }
 
         /// <summary>
@@ -230,78 +271,100 @@ namespace OfficeSpace.Controllers
         /// <param name="floorId"></param>
         /// <param name="unitId"></param>
         /// <returns></returns>
-        private async Task<IEnumerable<MasterTreeGridItemModel>> PopulateLocationBranch(
+        private async Task<IEnumerable<dynamic>> PopulateLocationBranch(
             Action<int> setId, Func<int> getId,
             Action<int> setParentId, Func<int> getParentId,
             int locationId,
             int? buildingId = null, int? floorId = null, int? unitId = null)
         {
-            var locationBranch = new List<MasterTreeGridItemModel>();
+            var locationBranch = new List<dynamic>();
             int id = getId();
-            int parent = getParentId();
 
             if (!buildingId.HasValue || buildingId.Value == 0)
             {
                 var buildings = await _dbContext.Buildings.Where(b => !b.IsDeleted && b.LocationId == locationId).ToListAsync();
                 if (buildings.Count > 0)
                 {
-                    var result = await CountAllTypeOfWorkspace(locationId, buildingId.Value);
-
                     setParentId(id); // parentId = id
 
+                    var result = await CountAllTypeOfWorkspaceIn(false, locationId, 0); // counts all Buildings
+                    
                     foreach (var building in buildings)
                     {
-                        locationBranch.Add(new MasterTreeGridItemModel
+                        dynamic buildingModel = new ExpandoObject();
+                        buildingModel.Id = "id_" + (++id).ToString();
+                        buildingModel.Indent = 1;
+                        buildingModel.Parent = getParentId();
+
+                        buildingModel.ItemId = building.Id;
+                        buildingModel.Name = building.Name;
+                        buildingModel.Code = building.Code;
+                        buildingModel.CreatedDate = building.CreatedDate.ToString("dd-MMM-yyyy hh:mm");
+                        buildingModel.UpdatedDate = building.UpdatedDate.ToString("dd-MMM-yyyy hh:mm");
+
+                        dynamic buildingExpando = result.ExpandoDataSet.SingleOrDefault(e => e.ItemId == building.Id);
+                        if (buildingExpando == null)
                         {
-                            Id = "id_" + (++id).ToString(),
-                            Indent = 1,
-                            Parent = getParentId(),
+                            buildingExpando = result.GetDefaultExpando(building.Id, building.Name);
 
-                            ItemId = building.Id,
-                            Name = building.Name,
-                            Code = building.Code,
-                            CreatedDate = building.CreatedDate.ToString("dd-MMM-yyyy hh:mm"),
-                            UpdatedDate = building.UpdatedDate.ToString("dd-MMM-yyyy hh:mm")
-                        });
+                            dynamic treeGridItem = Combine(buildingExpando, buildingModel);
 
-                        setId(id); // updates ID increment
+                            locationBranch.Add(treeGridItem);
 
-                        var buildingBranch = await PopulateBuildingBranch(setId, getId, setParentId, getParentId, building.Id);
-                        
-                        locationBranch.AddRange(buildingBranch);
+                            setId(id); // updates ID increment
+                        }
+                        else
+                        {
+                            dynamic treeGridItem = Combine(buildingExpando, buildingModel);
 
-                        // makes sure the ID is continuous after populating the children.
-                        id = getId();
+                            locationBranch.Add(treeGridItem);
+
+                            setId(id); // updates ID increment
+
+                            var buildingBranch = await PopulateBuildingBranch(
+                                setId, getId,
+                                setParentId, getParentId,
+                                locationId,
+                                building.Id);
+
+                            locationBranch.AddRange(buildingBranch);
+
+                            // makes sure the ID is continuous after populating the children.
+                            id = getId();
+                        }
                     }
                 }
             }
             else
             {
-                var result = await CountAllTypeOfWorkspace(locationId, buildingId.Value);
-
                 // locationId > 0 && buildingId > 0 (it shouldn't be NULL, should it?)
                 var building = await _dbContext.Buildings.SingleOrDefaultAsync(b => b.Id == buildingId.Value);
+                dynamic buildingModel = new ExpandoObject();
+                buildingModel.Id = "id_" + (++id).ToString();
+                buildingModel.Indent = 1;
+                buildingModel.Parent = getParentId();
+
+                buildingModel.ItemId = building.Id;
+                buildingModel.Name = building.Name;
+                buildingModel.Code = building.Code;
+                buildingModel.CreatedDate = building.CreatedDate.ToString("dd-MMM-yyyy hh:mm");
+                buildingModel.UpdatedDate = building.UpdatedDate.ToString("dd-MMM-yyyy hh:mm");
+
+                var result = await CountAllTypeOfWorkspaceIn(false, locationId, buildingId.Value);
+                dynamic buildingExpando = result.ExpandoDataSet.SingleOrDefault(e => e.ItemId == buildingId.Value);
+
+                dynamic treeGridItem = Combine(buildingExpando, buildingModel);
 
                 setParentId(id); // parentId = id
 
-                locationBranch.Add(new MasterTreeGridItemModel
-                {
-                    Id = "id_" + (++id).ToString(),
-                    Indent = 1,
-                    Parent = getParentId(),
-
-                    ItemId = building.Id,
-                    Name = building.Name,
-                    Code = building.Code,
-                    CreatedDate = building.CreatedDate.ToString("dd-MMM-yyyy hh:mm"),
-                    UpdatedDate = building.UpdatedDate.ToString("dd-MMM-yyyy hh:mm")
-                });
+                locationBranch.Add(treeGridItem);
 
                 setId(id); // updates ID increment
 
                 var buildingBranch = await PopulateBuildingBranch(
                     setId, getId,
                     setParentId, getParentId,
+                    locationId,
                     buildingId.Value,
                     floorId, unitId);
 
@@ -314,13 +377,13 @@ namespace OfficeSpace.Controllers
             return locationBranch;
         }
 
-        private async Task<IEnumerable<MasterTreeGridItemModel>> PopulateBuildingBranch(
+        private async Task<IEnumerable<dynamic>> PopulateBuildingBranch(
             Action<int> setId, Func<int> getId,
             Action<int> setParentId, Func<int> getParentId,
-            int buildingId,
+            int locationId, int buildingId,
             int? floorId = null, int? unitId = null)
         {
-            var buildingBranch = new List<MasterTreeGridItemModel>();
+            var buildingBranch = new List<dynamic>();
             int id = getId();
 
             if (!floorId.HasValue || floorId.Value == 0)
@@ -330,61 +393,82 @@ namespace OfficeSpace.Controllers
                 {
                     setParentId(id); // parentId = id
 
+                    var result = await CountAllTypeOfWorkspaceIn(false, locationId, buildingId, 0); // counts all Floors
+
                     foreach (var floor in floors)
                     {
-                        buildingBranch.Add(new MasterTreeGridItemModel
+                        dynamic floorModel = new ExpandoObject();
+                        floorModel.Id = "id_" + (++id).ToString();
+                        floorModel.Indent = 2;
+                        floorModel.Parent = getParentId();
+
+                        floorModel.ItemId = floor.Id;
+                        floorModel.Name = floor.Name;
+                        floorModel.Code = floor.Code;
+                        floorModel.CreatedDate = floor.CreatedDate.ToString("dd-MMM-yyyy hh:mm");
+                        floorModel.UpdatedDate = floor.UpdatedDate.ToString("dd-MMM-yyyy hh:mm");
+
+                        dynamic floorExpando = result.ExpandoDataSet.SingleOrDefault(e => e.ItemId == floor.Id);
+                        if (floorExpando == null)
                         {
-                            Id = "id_" + (++id).ToString(),
-                            Indent = 2,
-                            Parent = getParentId(),
+                            floorExpando = result.GetDefaultExpando(floor.Id, floor.Name);
 
-                            ItemId = floor.Id,
-                            Name = floor.Name,
-                            Code = floor.Code,
-                            CreatedDate = floor.CreatedDate.ToString("dd-MMM-yyyy hh:mm"),
-                            UpdatedDate = floor.UpdatedDate.ToString("dd-MMM-yyyy hh:mm")
-                        });
+                            dynamic treeGridItem = Combine(floorExpando, floorModel);
 
-                        setId(id); // updates ID increment
+                            buildingBranch.Add(treeGridItem);
 
-                        var floorBranch = await PopulateFloorBranch(
-                            setId, getId,
-                            setParentId, getParentId,
-                            floor.Id);
+                            setId(id); // updates ID increment
+                        }
+                        else
+                        {
+                            dynamic treeGridItem = Combine(floorExpando, floorModel);
 
-                        buildingBranch.AddRange(floorBranch);
+                            buildingBranch.Add(treeGridItem);
+                            setId(id); // updates ID increment
 
-                        // makes sure the ID is continuous after populating the children.
-                        id = getId();
+                            var floorBranch = await PopulateFloorBranch(
+                                setId, getId,
+                                setParentId, getParentId,
+                                locationId, buildingId, floor.Id);
+
+                            buildingBranch.AddRange(floorBranch);
+
+                            // makes sure the ID is continuous after populating the children.
+                            id = getId();
+                        }
                     }
                 }
             }
             else
             {
                 // locationId > 0 && buildingId > 0 && floorId > 0 (it shouldn't be NULL, should it?)
-                var floor = await _dbContext.Buildings.SingleOrDefaultAsync(f => f.Id == floorId.Value);
+                var floor = await _dbContext.Floors.SingleOrDefaultAsync(f => f.Id == floorId.Value);
+                dynamic floorModel = new ExpandoObject();
+                floorModel.Id = "id_" + (++id).ToString();
+                floorModel.Indent = 2;
+                floorModel.Parent = getParentId();
+
+                floorModel.ItemId = floor.Id;
+                floorModel.Name = floor.Name;
+                floorModel.Code = floor.Code;
+                floorModel.CreatedDate = floor.CreatedDate.ToString("dd-MMM-yyyy hh:mm");
+                floorModel.UpdatedDate = floor.UpdatedDate.ToString("dd-MMM-yyyy hh:mm");
+
+                var result = await CountAllTypeOfWorkspaceIn(false, locationId, buildingId, floorId.Value);
+                dynamic floorExpando = result.ExpandoDataSet.SingleOrDefault(e => e.ItemId == floorId.Value);
+
+                dynamic treeGridItem = Combine(floorExpando, floorModel);
 
                 setParentId(id);
 
-                buildingBranch.Add(new MasterTreeGridItemModel
-                {
-                    Id = "id_" + (++id).ToString(),
-                    Indent = 2,
-                    Parent = getParentId(),
-
-                    ItemId = floor.Id,
-                    Name = floor.Name,
-                    Code = floor.Code,
-                    CreatedDate = floor.CreatedDate.ToString("dd-MMM-yyyy hh:mm"),
-                    UpdatedDate = floor.UpdatedDate.ToString("dd-MMM-yyyy hh:mm")
-                });
+                buildingBranch.Add(treeGridItem);
 
                 setId(id); // updates ID increment
 
                 var floorBranch = await PopulateFloorBranch(
                     setId, getId,
                     setParentId, getParentId,
-                    floorId.Value,
+                    locationId, buildingId, floorId.Value,
                     unitId);
 
                 buildingBranch.AddRange(floorBranch);
@@ -396,13 +480,13 @@ namespace OfficeSpace.Controllers
             return buildingBranch;
         }
 
-        private async Task<IEnumerable<MasterTreeGridItemModel>> PopulateFloorBranch(
+        private async Task<IEnumerable<dynamic>> PopulateFloorBranch(
             Action<int> setId, Func<int> getId,
             Action<int> setParentId, Func<int> getParentId,
-            int floorId,
+            int locationId, int buildingId, int floorId,
             int? unitId = null)
         {
-            var floorBranch = new List<MasterTreeGridItemModel>();
+            var floorBranch = new List<dynamic>();
             int id = getId();
 
             if (!unitId.HasValue || unitId.Value == 0)
@@ -412,20 +496,30 @@ namespace OfficeSpace.Controllers
                 {
                     setParentId(id); // parentId = id
 
+                    var result = await CountAllTypeOfWorkspaceIn(false, locationId, buildingId, floorId, 0); // counts all Units
+
                     foreach (var unit in units)
                     {
-                        floorBranch.Add(new MasterTreeGridItemModel
-                        {
-                            Id = "id_" + (++id).ToString(),
-                            Indent = 3,
-                            Parent = getParentId(),
+                        dynamic unitModel = new ExpandoObject();
+                        unitModel.Id = "id_" + (++id).ToString();
+                        unitModel.Indent = 3;
+                        unitModel.Parent = getParentId();
 
-                            ItemId = unit.Id,
-                            Name = unit.Name,
-                            Code = unit.Code,
-                            CreatedDate = unit.CreatedDate.ToString("dd-MMM-yyyy hh:mm"),
-                            UpdatedDate = unit.UpdatedDate.ToString("dd-MMM-yyyy hh:mm")
-                        });
+                        unitModel.ItemId = unit.Id;
+                        unitModel.Name = unit.Name;
+                        unitModel.Code = unit.Code;
+                        unitModel.CreatedDate = unit.CreatedDate.ToString("dd-MMM-yyyy hh:mm");
+                        unitModel.UpdatedDate = unit.UpdatedDate.ToString("dd-MMM-yyyy hh:mm");
+
+                        dynamic unitExpando = result.ExpandoDataSet.SingleOrDefault(e => e.ItemId == unit.Id);
+                        if (unitExpando == null)
+                        {
+                            unitExpando = result.GetDefaultExpando(unit.Id, unit.Name);
+                        }
+
+                        dynamic treeGridItem = Combine(unitExpando, unitModel);
+
+                        floorBranch.Add(treeGridItem);
 
                         setId(id); // updates ID increment
                     }
@@ -433,23 +527,27 @@ namespace OfficeSpace.Controllers
             }
             else
             {
-                // locationId > 0 && buildingId > 0 && floorId > 0
-                var unit = await _dbContext.Buildings.FindAsync(unitId.Value); // unit shouldn't be NULL, should it?
-
                 setParentId(id);
 
-                floorBranch.Add(new MasterTreeGridItemModel
-                {
-                    Id = "id_" + (++id).ToString(),
-                    Indent = 3,
-                    Parent = getParentId(),
+                // locationId > 0 && buildingId > 0 && floorId > 0 && unitId > 0
+                var unit = await _dbContext.Units.FindAsync(unitId.Value); // unit shouldn't be NULL, should it?
+                dynamic unitModel = new ExpandoObject();
+                unitModel.Id = "id_" + (++id).ToString();
+                unitModel.Indent = 3;
+                unitModel.Parent = getParentId();
 
-                    ItemId = unit.Id,
-                    Name = unit.Name,
-                    Code = unit.Code,
-                    CreatedDate = unit.CreatedDate.ToString("dd-MMM-yyyy hh:mm"),
-                    UpdatedDate = unit.UpdatedDate.ToString("dd-MMM-yyyy hh:mm")
-                });
+                unitModel.ItemId = unit.Id;
+                unitModel.Name = unit.Name;
+                unitModel.Code = unit.Code;
+                unitModel.CreatedDate = unit.CreatedDate.ToString("dd-MMM-yyyy hh:mm");
+                unitModel.UpdatedDate = unit.UpdatedDate.ToString("dd-MMM-yyyy hh:mm");
+
+                var result = await CountAllTypeOfWorkspaceIn(false, locationId, buildingId, floorId, unitId.Value);
+                dynamic unitExpando = result.ExpandoDataSet.SingleOrDefault(e => e.ItemId == unit.Id);
+
+                dynamic treeGridItem = Combine(unitExpando, unitModel);
+
+                floorBranch.Add(treeGridItem);
 
                 setId(id); // updates ID increment
             }
@@ -457,7 +555,7 @@ namespace OfficeSpace.Controllers
             return floorBranch;
         }
         
-        private async Task<ResultSetModel> CountAllTypeOfWorkspace(int locationId = 0, int? buildingId = null, int? floorId = null, int? unitId = null)
+        private async Task<ResultSetModel> CountAllTypeOfWorkspaceIn(bool getColumnInfos = false, int locationId = 0, int? buildingId = null, int? floorId = null, int? unitId = null)
         {
             var resultSet = new ResultSetModel();
             string currentColumnName = string.Empty;
@@ -531,15 +629,18 @@ namespace OfficeSpace.Controllers
 
                     using (var reader = await command.ExecuteReaderAsync())
                     {
-                        if (reader.FieldCount > 0)
+                        if (reader.FieldCount > 0 && getColumnInfos)
                         {
-                            if (!resultSet.IsColumnsFetched)
-                            {
-                                // gets list of column names from the DbDataReader ONCE.
-                                resultSet.Columns = Enumerable.Range(0, reader.FieldCount).Select(reader.GetName).ToList();
-                                resultSet.IsColumnsFetched = true;
-                            }
+                            // gets list of column names from the DbDataReader ONCE.
+                            resultSet.Columns = Enumerable.Range(0, reader.FieldCount).Select(reader.GetName).ToList();
+                            resultSet.ColumnInfos = Enumerable.Range(0, reader.FieldCount)
+                                .ToDictionary(
+                                    i => reader.GetName(i),
+                                    i => reader.GetFieldType(i));
+                        }
 
+                        if (reader.HasRows)
+                        {
                             while (await reader.ReadAsync())
                             {
                                 row = new Dictionary<int, ArrayList>();
@@ -571,14 +672,13 @@ namespace OfficeSpace.Controllers
                                     expandoSet.Add(kvp);
                                 }
 
-                                resultSet.ExpandoDataSet.Add(expando);
+                                dynamic dexpando = expandoSet;
 
-                                resultSet.DataSet.Add(set);
+                                resultSet.ExpandoDataSet.Add(expandoSet);
 
                                 resultSet.Rows.Add(rowKey, rowData);
                             }
                         }
-                        
                     }
                 }
                 finally
@@ -588,6 +688,41 @@ namespace OfficeSpace.Controllers
             }
 
             return resultSet;
+        }
+
+        private static dynamic Merge(object expandoItem1, object expandoItem2)
+        {
+            if (expandoItem1 == null || expandoItem2 == null)
+                return expandoItem1 ?? expandoItem2 ?? new ExpandoObject();
+
+            dynamic expando = new ExpandoObject();
+
+            var result = expando as IDictionary<string, object>;
+            foreach (System.Reflection.PropertyInfo fi in expandoItem1.GetType().GetProperties())
+            {
+                result[fi.Name] = fi.GetValue(expandoItem1, null);
+            }
+            foreach (System.Reflection.PropertyInfo fi in expandoItem2.GetType().GetProperties())
+            {
+                result[fi.Name] = fi.GetValue(expandoItem2, null);
+            }
+
+            return result;
+        }
+
+        private static dynamic Combine(dynamic item1, dynamic item2)
+        {
+            var dictionary1 = (IDictionary<string, object>)item1;
+            var dictionary2 = (IDictionary<string, object>)item2;
+            var result = new ExpandoObject();
+            var d = result as IDictionary<string, object>; //work with the Expando as a Dictionary
+
+            foreach (var pair in dictionary1.Concat(dictionary2))
+            {
+                d[pair.Key] = pair.Value;
+            }
+
+            return result;
         }
     }
 }

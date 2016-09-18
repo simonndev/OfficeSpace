@@ -68,16 +68,143 @@
 
     <script type="text/javascript">
 
+        var filterLocationId = 0;
+        var filterBuildingId, filterFloorId, filterUnitId;
+
         $(document).ready(function () {
             $.ajaxSetup({ cache: false });
 
-            $('#btnFilter').click(function () {
-                var locationId = $("#ddownLocationSelection").val();
-                var buildingId = $("#ddownBuildingSelection").val();
-                var floorId = $("#ddownFloorSelection").val();
-                var wingId = $("#ddownWingSelection").val();
+            var runFiltersInterval = null;
 
-                loadTreeGrid(locationId);
+            $("#ddownLocationSelection").on('change', function () {
+                var currentLocationId = parseInt($(this).val());
+                if (currentLocationId === 0) {
+                    // reset Building Selection
+                    $("#ddownBuildingSelection").find('option').remove().end();
+                    $("#ddownBuildingSelection").append($("<option />").text("Please select a Location"));
+                    $('#ddownBuildingSelection').trigger('change');
+                } else {
+                    populateDropDown(currentLocationId, 'select#ddownBuildingSelection', 0);
+                }
+
+                // update tree
+                if (filterLocationId !== currentLocationId) {
+
+                    //Slick.GlobalEditorLock.cancelCurrentEdit();
+
+                    //window.clearTimeout(runFiltersInterval);
+                    //runFiltersInterval = window.setTimeout(updateFilter, 10);
+
+                    filterLocationId = currentLocationId;
+                }
+            });
+
+            $("#ddownBuildingSelection").on('change', function () {
+                var currentBuildingId = parseInt($(this).val());
+                if (isNaN(currentBuildingId) || currentBuildingId === 0) {
+                    // reset Floor Selection
+                    $("#ddownFloorSelection").find('option').remove().end();
+                    $("#ddownFloorSelection").append($("<option />").text("Please select a Building"));
+                    $("#ddownFloorSelection").trigger('change');
+                } else {
+                    populateDropDown(currentBuildingId, 'select#ddownFloorSelection', 1);
+                }
+
+                if (filterBuildingId !== currentBuildingId) {
+
+                    //window.clearTimeout(runFiltersInterval);
+                    //runFiltersInterval = window.setTimeout(updateFilter, 10);
+
+                    filterBuildingId = currentBuildingId;
+                }
+            });
+
+            $("#ddownFloorSelection").on('change', function () {
+                var currentFloorId = parseInt($(this).val());
+                if (isNaN(currentFloorId) || currentFloorId === 0) {
+                    // reset Unit Selection
+                    $("#ddownUnitSelection").find('option').remove().end();
+                    $("#ddownUnitSelection").append($("<option />").text("Please select a Floor"));
+                    $("#ddownUnitSelection").trigger('change');
+                } else {
+                    populateDropDown(currentFloorId, 'select#ddownUnitSelection', 2);
+                }
+
+                if (filterFloorId !== currentFloorId) {
+
+                    //window.clearTimeout(runFiltersInterval);
+                    //runFiltersInterval = window.setTimeout(updateFilter, 10);
+
+                    filterFloorId = currentFloorId;
+                }
+            });
+
+            $("#ddownUnitSelection").on('change', function () {
+                var currentUnitId = parseInt($(this).val());
+
+                if (filterUnitId !== currentUnitId) {
+
+                    //window.clearTimeout(runFiltersInterval);
+                    //runFiltersInterval = window.setTimeout(updateFilter, 10);
+
+                    filterUnitId = currentUnitId;
+                }
+            });
+
+            $('#btnFilter').click(function () {
+                debugger;
+                //var locationId = $("#ddownLocationSelection").val();
+                //var buildingId = $("#ddownBuildingSelection").val();
+                //var floorId = $("#ddownFloorSelection").val();
+                //var wingId = $("#ddownUnitSelection").val();
+
+                var paramObj = {
+                    locationId: filterLocationId,
+                    buildingId: filterBuildingId,
+                    floorId: filterFloorId,
+                    unitId: filterUnitId
+                };
+                var url = '@Url.Action("GetTreeGridJson", "Master")';
+
+                $.getJSON(url, paramObj, function (response, status, xhr) {
+                    debugger;
+                    // hides meaniless columns
+                    columns = $.grep(response.columns, function (col, idx) {
+                        return col.field === 'itemId' || col.field === 'parent' || col.field === 'indent' || col.field === 'id' || col.field === 'createdDate' || col.field === 'updatedDate'
+                    }, true);
+
+                    columns.sort(function (col1, col2) {
+                        return col1.field.localeCompare(col2.field);
+                    });
+
+                    columns[0].formatter = NodeNameFormatter;
+
+                    grid.setColumns(columns);
+
+                    data = response.data;
+
+                    dataView.beginUpdate();
+
+                    dataView.setItems(data);
+
+                    //dataView.setFilterArgs({
+                    //    locationId: filterLocationId,
+                    //    buildingId: filterBuildingId,
+                    //    floorId: filterFloorId,
+                    //    unitId: filterUnitId
+                    //});
+                    //dataView.setFilter(treeFilter);
+                    dataView.setFilter(myFilter);
+
+                    dataView.endUpdate();
+
+                    for (var i = 0; i < data.length; i++) {
+                        grid.updateRow(i);
+                    }
+
+                    grid.invalidate();
+                    grid.render();
+                });
             });
         });
 
@@ -91,7 +218,7 @@
             enableAddRow: false,
             enableCellNavigation: false,
             enableColumnReorder: false,
-            asyncEditorLoading: false,
+            asyncEditorLoading: true,
             forceFitColumns: true,
             autoHeight: true
         };
@@ -115,28 +242,87 @@
         var columns = [
           { id: "name", name: "Name", field: "name", formatter: NodeNameFormatter },
           { id: "code", name: "Code", field: "code" }
-          //{ id: "code", name: "Item ID", field: "itemId" },
-          //{ id: "createdDate", name: "Created Date", field: "createdDate" },
-          //{ id: "updatedDate", name: "Updated Date", field: "updatedDate" }
         ];
 
         var nameSearchString = '';
 
-        function nameFilter(item) {
-            if (nameSearchString != "" && item["name"].indexOf(nameSearchString) == -1) {
-                return false;
-            }
+        function myFilter(item, args) {
+            //debugger;
+            //if (args.locationId > 0) {
+
+                //if (args.buildingId === 0) {
+                //    // display all buildings
+                //} else {
+
+                //    if (item.indent !== 1 || item.itemId !== args.locationId || item.itemId !== args.buildingId) {
+                //        return false;
+                //    }
+                //}
+
+                //if (item.indent > 0 || item.itemId !== args.locationId) {
+                //    return false;
+                //}
+
+
+                //if (args.buildingId === 0) {
+                //    // display all buildings
+                //} else {
+                //    if (args.floorId === 0) {
+                //        // display all floors
+                //    } else {
+                //        if (args.unitId === 0) {
+                //            // display all units
+                //            if (item.indent !== 3) {
+                //                return false;
+                //            }
+                //        } else {
+                //            if (item.indent !== 3 && item.itemId !== args.unitId) {
+                //                return false;
+                //            }
+                //        }
+
+                //        if (item.indent !== 2 && item.itemId != args.floorId) {
+                //            return false;
+                //        }
+                //    }
+                //}
+
+            //}
 
             if (item.parent != null) {
                 var parent = data[item.parent];
                 while (parent) {
-                    if (parent._collapsed || (nameSearchString != "" && parent["name"].indexOf(nameSearchString) == -1)) {
+                    if (parent._collapsed) {
                         return false;
                     }
 
                     parent = data[parent.parent];
                 }
             }
+
+            return true;
+        }
+
+        function treeFilter(item, args) {
+            if (args.locationId === 0) {
+                return true;
+            }
+
+            if (item.indent === 0 && item.itemId !== args.locationId) {
+                return false;
+            }
+
+            if (item.parent !== null) {
+                var parent = data[item.parent];
+
+                while (parent) {
+                    if (parent._collapsed || parent['itemId'] !== percentCompleteThreshold) {
+                        return false;
+                    }
+                }
+            }
+
+
 
             return true;
         }
@@ -149,13 +335,35 @@
             var url = '@Url.Action("GetTreeGridJson", "Master")';
 
             $.getJSON(url, paramObj, function (response, status, xhr) {
-                debugger;
+                
+                // hides meaniless columns
+                columns = $.grep(response.columns, function (col, idx) {
+                    return col.field === 'itemId' || col.field === 'parent' || col.field === 'indent' || col.field === 'id' || col.field === 'createdDate' || col.field === 'updatedDate'
+                }, true);
 
-                data = response;
+                columns.sort(function (col1, col2) {
+                    return col1.field.localeCompare(col2.field);
+                });
+
+                columns[0].formatter = NodeNameFormatter;
+
+                grid.setColumns(columns);
+
+                data = response.data;
 
                 dataView.beginUpdate();
+
                 dataView.setItems(data);
-                dataView.setFilter(nameFilter);
+
+                //dataView.setFilterArgs({
+                //    locationId: filterLocationId,
+                //    buildingId: filterBuildingId,
+                //    floorId: filterFloorId,
+                //    unitId: filterUnitId
+                //});
+                //dataView.setFilter(treeFilter);
+                dataView.setFilter(myFilter);
+
                 dataView.endUpdate();
             });
 
@@ -190,20 +398,58 @@
             });
         });
 
-        function loadTreeGrid(locationId, buildingId, floorId, unitId) {
-            var paramObj = {
-                locationId: locationId
-            };
-            var url = '@Url.Action("GetTreeGridJson", "Master")';
+        function updateFilter() {
+            dataView.setFilterArgs({
+                locationId: filterLocationId,
+                buildingId: filterBuildingId,
+                floorId: filterFloorId,
+                unitId: filterUnitId
+            });
 
-            $.getJSON(url, paramObj, function (response, status, xhr) {
+            dataView.refresh();
+        }
 
-                data = response;
+        function populateDropDown(valueId, dropdownId, dropdownType) {
+            var url, request = {};
 
-                dataView.beginUpdate();
-                dataView.setItems(data);
-                dataView.setFilter(nameFilter);
-                dataView.endUpdate();
+            switch (dropdownType) {
+                case 0:
+                    url = '@Url.Action("PopulateBuildingSelectionByLocation", "Common")';
+                    request = { locationId: valueId };
+                    break;
+                case 1:
+                    url = '@Url.Action("PopulateFloorSelectionByBuilding", "Common")';
+                    request = { buildingId: valueId };
+                    break;
+                case 2:
+                    url = '@Url.Action("PopulateUnitSelectionByFloor", "Common")';
+                    request = { floorId: valueId };
+                    break;
+                default:
+                    break;
+            }
+
+            $.getJSON(url, request, function (selectItems) {
+                var dropDownEle = $(dropdownId);
+                dropDownEle.find('option').remove().end();
+
+                $.each(selectItems, function (i, option) {
+                    dropDownEle.append($("<option />").val(option.Id).text(option.Name));
+                });
+
+                //"<option value='0' selected='selected'></option>"
+                //dropDownEle.prepend($("<option selected='selected' />").val(0).text('All'));
+
+                //if (subLocations.length > 0) {
+                //    $.each(subLocations, function (i, subLocation) {
+                //        subLocationDropDown.append($("<option />").val(subLocation.Id).text(subLocation.Name));
+                //    });
+
+                //    $('select#ddownSubLocationSelection option:first-child').attr("selected", "selected");
+                //    $('select#ddownSubLocationSelection').trigger('change');
+                //} else {
+                //    subLocationDropDown.append($("<option />").val(0).text("Please select a Sub-Location"));
+                //}
             });
         }
     </script>
